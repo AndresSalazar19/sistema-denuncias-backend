@@ -92,4 +92,48 @@ class DenunciaController extends Controller
             'imagenes'           => $denuncia->imagenes // Máximo 3 imágenes [cite: 43]
         ]);
     }
+
+    public function search(Request $request)
+    {
+        // Iniciamos la consulta
+        $query = Denuncia::query();
+
+        // Filtro por Categoría 
+        if ($request->has('categoria')) {
+            $query->where('categoria', $request->categoria);
+        }
+
+        // Filtro por Estado 
+        if ($request->has('estado')) {
+            $query->where('estado', $request->estado);
+        }
+
+        // Filtro por Código de Seguimiento [cite: 73]
+        if ($request->has('codigo')) {
+            $query->where('codigo_seguimiento', $request->codigo);
+        }
+
+        // Búsqueda por palabras clave en Título o Descripción 
+        if ($request->has('keyword')) {
+            $keyword = $request->keyword;
+            $query->where(function($q) use ($keyword) {
+                $q->where('titulo', 'LIKE', "%$keyword%")
+                ->orWhere('descripcion', 'LIKE', "%$keyword%");
+            });
+        }
+
+        // Filtro por Rango de Fechas 
+        if ($request->has('fecha_inicio') && $request->has('fecha_fin')) {
+            $query->whereBetween('created_at', [$request->fecha_inicio, $request->fecha_fin]);
+        }
+
+        // Ordenar resultados por fecha descendente (más recientes primero) 
+        $denuncias = $query->orderBy('created_at', 'desc')->get();
+
+        return response()->json([
+            'total' => $denuncias->count(),
+            'data' => $denuncias
+        ]);
+    }
+    
 }
