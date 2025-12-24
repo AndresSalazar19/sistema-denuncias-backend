@@ -136,4 +136,30 @@ class DenunciaController extends Controller
         ]);
     }
     
+    public function publicStats()
+    {
+        // 1. Conteo por categoría para el gráfico de pastel [cite: 73]
+        $porCategoria = \App\Models\Denuncia::select('categoria', \DB::raw('count(*) as total'))
+            ->groupBy('categoria')
+            ->get();
+
+        // 2. Conteo por estado para métricas clave [cite: 73]
+        $porEstado = \App\Models\Denuncia::select('estado', \DB::raw('count(*) as total'))
+            ->groupBy('estado')
+            ->get();
+
+        // 3. Datos anonimizados para el mapa público [cite: 74]
+        // Solo enviamos coordenadas y estado para proteger la identidad
+        $mapaPuntos = \App\Models\Denuncia::select('ubicacion_lat', 'ubicacion_lng', 'estado')
+            ->whereNotNull('ubicacion_lat')
+            ->get();
+
+        return response()->json([
+            'stats_categorias' => $porCategoria,
+            'stats_estados'    => $porEstado,
+            'mapa_calor'       => $mapaPuntos,
+            'mensaje'          => 'Datos anonimizados para consulta pública'
+        ]);
+    }
+    
 }
