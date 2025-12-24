@@ -36,4 +36,32 @@ class DenunciaController extends Controller
             'data' => $denuncia
         ], 201);
     }
+
+    public function updateStatus(Request $request, $id)
+    {
+        // 1. Validar que el estado sea uno de los definidos en tu base de datos
+        $request->validate([
+            'estado' => 'required|in:nueva,en_revision,en_proceso,resueltas,rechazada'
+        ]);
+
+        // 2. Buscar la denuncia en Google Cloud
+        $denuncia = \App\Models\Denuncia::find($id);
+
+        if (!$denuncia) {
+            return response()->json(['message' => 'Denuncia no encontrada'], 404);
+        }
+
+        // 3. Actualizar el estado
+        $denuncia->estado = $request->estado;
+        $denuncia->save();
+
+        return response()->json([
+            'message' => 'Estado actualizado correctamente',
+            'denuncia' => [
+                'id' => $denuncia->id,
+                'codigo_seguimiento' => $denuncia->codigo_seguimiento,
+                'nuevo_estado' => $denuncia->estado
+            ]
+        ]);
+    }
 }
