@@ -64,4 +64,32 @@ class DenunciaController extends Controller
             ]
         ]);
     }
+
+    public function showByCode($codigo)
+    {
+        // 1. Buscar la denuncia por el código único de seguimiento 
+        $denuncia = \App\Models\Denuncia::where('codigo_seguimiento', $codigo)->first();
+
+        // 2. Validar si existe
+        if (!$denuncia) {
+            return response()->json([
+                'message' => 'El código de seguimiento no es válido o no existe.'
+            ], 404);
+        }
+
+        // 3. Retornar la información para el prototipo de consulta [cite: 73, 230]
+        return response()->json([
+            'codigo_seguimiento' => $denuncia->codigo_seguimiento,
+            'estado'             => $denuncia->estado, // Nueva, En Revisión, etc. [cite: 30]
+            'categoria'          => $denuncia->categoria,
+            'fecha_registro'     => $denuncia->created_at->format('d/m/Y - H:i'),
+            'fecha_actualizacion'=> $denuncia->updated_at->format('d/m/Y - H:i'),
+            'ubicacion' => [
+                'direccion' => $denuncia->ubicacion_direccion,
+                'lat'       => $denuncia->ubicacion_lat,
+                'lng'       => $denuncia->ubicacion_lng
+            ],
+            'imagenes'           => $denuncia->imagenes // Máximo 3 imágenes [cite: 43]
+        ]);
+    }
 }
