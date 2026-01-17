@@ -12,16 +12,20 @@ class Denuncia extends Model
         'codigo_seguimiento',
         'titulo',
         'descripcion',
-        'categoria',
-        'estado',
+        'categoria_id',
+        'estado_id',
         'ubicacion_direccion',
         'ubicacion_lat',
         'ubicacion_lng',
-        'imagenes'
     ];
 
-    // Convierte el JSON de la base de datos a un array de PHP automáticamente
-    protected $casts = [
-        'imagenes' => 'array',
-    ];
+    public function categoria()
+    {
+        return $this->belongsTo(Categoria::class, 'categoria_id');
+    }
+
+    public function estado()
+    {
+        return $this->belongsTo(EstadoDenuncia::class, 'estado_id');
+    }
 }

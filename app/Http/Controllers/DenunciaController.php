@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Denuncia;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class DenunciaController extends Controller
 {
@@ -139,12 +140,12 @@ class DenunciaController extends Controller
     public function publicStats()
     {
         // 1. Conteo por categoría para el gráfico de pastel [cite: 73]
-        $porCategoria = \App\Models\Denuncia::select('categoria', \DB::raw('count(*) as total'))
+        $porCategoria = \App\Models\Denuncia::select('categoria', DB::raw('count(*) as total'))
             ->groupBy('categoria')
             ->get();
 
         // 2. Conteo por estado para métricas clave [cite: 73]
-        $porEstado = \App\Models\Denuncia::select('estado', \DB::raw('count(*) as total'))
+        $porEstado = \App\Models\Denuncia::select('estado', DB::raw('count(*) as total'))
             ->groupBy('estado')
             ->get();
 
