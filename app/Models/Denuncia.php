@@ -28,4 +28,10 @@ class Denuncia extends Model
     {
         return $this->belongsTo(EstadoDenuncia::class, 'estado_id');
     }
+
+    public function evidencias()
+    {
+        return $this->hasMany(EvidenciaDenuncia::class, 'denuncia_id');
+    }
+    
 }

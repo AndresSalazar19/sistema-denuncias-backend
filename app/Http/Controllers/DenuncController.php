@@ -6,86 +6,127 @@ use App\Models\Denuncia;
 use App\Models\Categoria;
 use App\Models\EstadoDenuncia;
 use App\Models\HistorialEstadoDenuncia;
+use App\Models\EvidenciaDenuncia; 
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
-
+use Illuminate\Support\Facades\Storage; 
 class DenuncController extends Controller
 {
     public function store(Request $request)
     {
-        // 1. Validar los datos según la nueva estructura de tablas
+
+        if ($request->has('categoria')) {
+            $cat = Categoria::where('slug', $request->categoria)->first();
+            if ($cat) {
+                $request->merge(['categoria_id' => $cat->id]); // Inyectamos el ID correcto
+            }
+        }
+
         $validated = $request->validate([
             'titulo' => 'required|string|max:200',
             'descripcion' => 'required|string',
-            'categoria_id' => 'required|exists:categorias,id',
-            'ubicacion_direccion' => 'nullable|string|max:255',
-            'ubicacion_lat' => 'nullable|numeric|between:-90,90',
-            'ubicacion_lng' => 'nullable|numeric|between:-180,180'
+            'categoria_id' => 'required|exists:categorias,id', // Ahora esto pasará
+            'ubicacion_lat' => 'required', // React lo envía como string o number
+            'ubicacion_lng' => 'required',
+            // Validar que sean imágenes reales (máx 5MB)
+            'imagenes.*' => 'nullable|image|max:5120' 
         ]);
 
-        // 2. Generar el código único de seguimiento
-        $validated['codigo_seguimiento'] = $this->generarCodigoUnico();
-        
-        // 3. Estado inicial por defecto (ID 1 = "Nueva")
-        $estadoInicial = EstadoDenuncia::where('slug', 'nueva')->first();
-        $validated['estado_id'] = $estadoInicial->id;
+        // Iniciar una transacción de base de datos (por si algo falla, no guardar nada)
+        return DB::transaction(function () use ($validated, $request) {
+            
+            // Generar código
+            $codigo = $this->generarCodigoUnico();
+            
+            // Estado inicial (Nueva)
+            $estadoInicial = EstadoDenuncia::where('slug', 'nueva')->first();
+            if (!$estadoInicial) {
+                 // Fallback por si la DB está vacía
+                 $estadoInicial = EstadoDenuncia::firstOrCreate(['slug' => 'nueva'], ['name' => 'Nueva', 'color' => '#3b82f6']);
+            }
 
-        // 4. Crear el registro
-        $denuncia = Denuncia::create($validated);
+            // Crear la Denuncia
+            $denuncia = Denuncia::create([
+                'codigo_seguimiento' => $codigo,
+                'titulo' => $validated['titulo'],
+                'descripcion' => $validated['descripcion'],
+                'categoria_id' => $validated['categoria_id'],
+                'estado_id' => $estadoInicial->id,
+                'ubicacion_lat' => $validated['ubicacion_lat'],
+                'ubicacion_lng' => $validated['ubicacion_lng'],
+                // Asumimos que la dirección no la envía el frontend aún, o es null
+                'ubicacion_direccion' => $request->input('ubicacion_direccion', 'Ubicación en mapa'),
+            ]);
 
-        // 5. Registrar en el historial de estados
-        HistorialEstadoDenuncia::create([
-            'denuncia_id' => $denuncia->id,
-            'estado_nuevo_id' => $estadoInicial->id,
-            'admin_id' => null, // Sin admin porque es creación automática
-            'created_at' => now()
-        ]);
+            // Registrar historial
+            HistorialEstadoDenuncia::create([
+                'denuncia_id' => $denuncia->id,
+                'estado_nuevo_id' => $estadoInicial->id,
+                'created_at' => now()
+            ]);
 
-        return response()->json([
-            'message' => 'Denuncia registrada con éxito',
-            'codigo' => $denuncia->codigo_seguimiento,
-            'data' => $denuncia->load('categoria', 'estado')
-        ], 201);
+            if ($request->hasFile('imagenes')) {
+                foreach ($request->file('imagenes') as $archivo) {
+                    
+                    // Subir al Bucket configurado en .env
+                    $path = $archivo->store('evidencias', 'gcs');
+                    //Obtener URL Pública
+                    $url = Storage::disk('gcs')->url($path);
+
+                    // Guardar en tabla 'evidencia_denuncias'
+                    if (class_exists(EvidenciaDenuncia::class)) {
+                        EvidenciaDenuncia::create([
+                            'denuncia_id' => $denuncia->id,
+                            'file_path'   => $url, 
+                            'file_name'   => $archivo->getClientOriginalName(), 
+                            'file_size'   => $archivo->getSize(),
+                        ]);
+                    } else {
+                        DB::table('evidencia_denuncias')->insert([
+                            'denuncia_id' => $denuncia->id,
+                            'url_archivo' => $url,
+                            'tipo_archivo' => $archivo->getClientOriginalExtension(),
+                            'created_at' => now(),
+                            'updated_at' => now()
+                        ]);
+                    }
+                }
+            }
+
+            return response()->json([
+                'message' => 'Denuncia registrada con éxito',
+                'codigo' => $denuncia->codigo_seguimiento,
+                // Cargamos la relación de evidencias para que el frontend vea que se subieron
+                'data' => $denuncia->load('categoria', 'estado') 
+            ], 201);
+        });
     }
-
 
     public function showByCode($codigo)
     {
-        // 1. Buscar la denuncia por el código único de seguimiento
-        $denuncia = Denuncia::with(['categoria', 'estado', 'evidencias'])
+        $denuncia = Denuncia::with(['categoria', 'estado', 'evidencias']) // Asegúrate que la relación 'evidencias' exista en el Modelo Denuncia
             ->where('codigo_seguimiento', $codigo)
             ->first();
-
-        // 2. Validar si existe
+            
         if (!$denuncia) {
-            return response()->json([
-                'message' => 'El código de seguimiento no es válido o no existe.'
-            ], 404);
+            return response()->json(['message' => 'No encontrado'], 404);
         }
 
-        // 3. Retornar la información para consulta pública
         return response()->json([
             'codigo_seguimiento' => $denuncia->codigo_seguimiento,
             'estado' => $denuncia->estado->name,
             'estado_color' => $denuncia->estado->color,
             'categoria' => $denuncia->categoria->name,
             'fecha_registro' => $denuncia->created_at->format('d/m/Y - H:i'),
-            'fecha_actualizacion' => $denuncia->updated_at->format('d/m/Y - H:i'),
-            'ubicacion' => [
-                'direccion' => $denuncia->ubicacion_direccion,
-                'lat' => $denuncia->ubicacion_lat,
-                'lng' => $denuncia->ubicacion_lng
-            ],
             'evidencias' => $denuncia->evidencias->map(function($evidencia) {
                 return [
-                    'tipo' => $evidencia->file_type,
-                    'url' => asset('storage/' . $evidencia->file_path)
+                    'url' => $evidencia->url_archivo // Aquí usamos directo la URL de Google
                 ];
             })
         ]);
     }
-
+    
     public function search(Request $request)
     {
         // Iniciamos la consulta con relaciones

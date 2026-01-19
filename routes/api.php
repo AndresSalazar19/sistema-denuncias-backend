@@ -8,6 +8,7 @@ use App\Http\Controllers\DenuncController;
 use App\Http\Controllers\UtilitariosController;
 use Symfony\Component\Routing\Router;
 
+Route::get('/denuncias/{codigo}', [DenuncController::class, 'showByCode']);
 Route::post('/denuncias', [DenuncController::class, 'store']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::get('/denuncias/consultar/{codigo}', [DenuncController::class, 'showByCode']); //revisar

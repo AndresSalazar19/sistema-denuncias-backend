@@ -22,3 +22,8 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+gcloud-key.json
+# Ignorar llaves de Google
+*.json
+!composer.json
+!package.json
