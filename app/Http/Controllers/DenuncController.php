@@ -15,7 +15,15 @@ class DenuncController extends Controller
 {
     public function store(Request $request)
     {
-        // 🔹 1. Validación
+        $slug = $request->input('categoria') ?? $request->input('categoria_slug');
+
+        if ($slug) {
+            $cat = Categoria::where('slug', $slug)->first();
+            if ($cat) {
+                $request->merge(['categoria_id' => $cat->id]); 
+            }
+        }
+
         $validated = $request->validate([
             'titulo' => 'required|string|max:200',
             'descripcion' => 'required|string',
@@ -79,8 +87,7 @@ class DenuncController extends Controller
 
     public function showByCode($codigo)
     {
-        // 1. Buscar la denuncia por el código único de seguimiento
-        $denuncia = Denuncia::with(['categoria', 'estado'])
+        $denuncia = Denuncia::with(['categoria', 'estado', 'evidencias'])
             ->where('codigo_seguimiento', $codigo)
             ->first();
             
@@ -94,12 +101,16 @@ class DenuncController extends Controller
             'estado_color' => $denuncia->estado->color,
             'categoria' => $denuncia->categoria->name,
             'fecha_registro' => $denuncia->created_at->format('d/m/Y - H:i'),
-            'fecha_actualizacion' => $denuncia->updated_at->format('d/m/Y - H:i'),
+            'evidencias' => $denuncia->evidencias->map(function($evidencia) {
+                return [
+                    'url' => $evidencia->file_path 
+                ];
+            }),
             'ubicacion' => [
-                'direccion' => $denuncia->ubicacion_direccion,
                 'lat' => $denuncia->ubicacion_lat,
-                'lng' => $denuncia->ubicacion_lng
-            ],
+                'lng' => $denuncia->ubicacion_lng,
+                'direccion' => $denuncia->ubicacion_direccion
+            ]
         ]);
     }
     
