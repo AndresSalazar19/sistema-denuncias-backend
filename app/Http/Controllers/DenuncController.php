@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Denuncia;
 use App\Models\Categoria;
 use App\Models\EstadoDenuncia;
+use App\Models\EvidenciaDenuncia;
 use App\Models\HistorialEstadoDenuncia;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -14,46 +15,73 @@ class DenuncController extends Controller
 {
     public function store(Request $request)
     {
-        // 1. Validar los datos según la nueva estructura de tablas
+        // 🔹 1. Validación
         $validated = $request->validate([
             'titulo' => 'required|string|max:200',
             'descripcion' => 'required|string',
-            'categoria_id' => 'required|exists:categorias,id',
+            'categoria_slug' => 'required|exists:categorias,slug',
             'ubicacion_direccion' => 'nullable|string|max:255',
             'ubicacion_lat' => 'nullable|numeric|between:-90,90',
-            'ubicacion_lng' => 'nullable|numeric|between:-180,180'
+            'ubicacion_lng' => 'nullable|numeric|between:-180,180',
+            'imagenes' => 'nullable|array|max:3',
+            'imagenes.*' => 'image|max:5120', // 5MB
         ]);
 
-        // 2. Generar el código único de seguimiento
-        $validated['codigo_seguimiento'] = $this->generarCodigoUnico();
-        
-        // 3. Estado inicial por defecto (ID 1 = "Nueva")
-        $estadoInicial = EstadoDenuncia::where('slug', 'nueva')->first();
-        $validated['estado_id'] = $estadoInicial->id;
+        DB::beginTransaction();
 
-        // 4. Crear el registro
-        $denuncia = Denuncia::create($validated);
+        try {
+            // 🔹 2. Obtener categoría
+            $categoria = Categoria::where('slug', $validated['categoria_slug'])->first();
 
-        // 5. Registrar en el historial de estados
-        HistorialEstadoDenuncia::create([
-            'denuncia_id' => $denuncia->id,
-            'estado_nuevo_id' => $estadoInicial->id,
-            'admin_id' => null, // Sin admin porque es creación automática
-            'created_at' => now()
-        ]);
+            // 🔹 3. Crear denuncia
+            $denuncia = Denuncia::create([
+                'codigo_seguimiento' => strtoupper(Str::random(10)),
+                'titulo' => $validated['titulo'],
+                'descripcion' => $validated['descripcion'],
+                'categoria_id' => $categoria->id,
+                'estado_id' => 1,
+                'ubicacion_direccion' => $validated['ubicacion_direccion'] ?? null,
+                'ubicacion_lat' => $validated['ubicacion_lat'] ?? null,
+                'ubicacion_lng' => $validated['ubicacion_lng'] ?? null,
+            ]);
 
-        return response()->json([
-            'message' => 'Denuncia registrada con éxito',
-            'codigo' => $denuncia->codigo_seguimiento,
-            'data' => $denuncia->load('categoria', 'estado')
-        ], 201);
+            // 🔹 4. Guardar imágenes (si hay)
+            if ($request->hasFile('imagenes')) {
+                foreach ($request->file('imagenes') as $file) {
+                    $path = $file->store('denuncias', 'public');
+
+                    EvidenciaDenuncia::create([
+                        'denuncia_id' => $denuncia->id,
+                        'file_path' => $path,
+                        'file_name' => $file->getClientOriginalName(),
+                        'file_size' => $file->getSize(),
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            // 🔹 5. Respuesta correcta
+            return response()->json([
+                'message' => 'Denuncia creada correctamente',
+                'codigo_seguimiento' => $denuncia->codigo_seguimiento
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'message' => 'Error al crear la denuncia',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
 
     public function showByCode($codigo)
     {
         // 1. Buscar la denuncia por el código único de seguimiento
-        $denuncia = Denuncia::with(['categoria', 'estado', 'evidencias'])
+        $denuncia = Denuncia::with(['categoria', 'estado'])
             ->where('codigo_seguimiento', $codigo)
             ->first();
 
@@ -77,12 +105,6 @@ class DenuncController extends Controller
                 'lat' => $denuncia->ubicacion_lat,
                 'lng' => $denuncia->ubicacion_lng
             ],
-            'evidencias' => $denuncia->evidencias->map(function($evidencia) {
-                return [
-                    'tipo' => $evidencia->file_type,
-                    'url' => asset('storage/' . $evidencia->file_path)
-                ];
-            })
         ]);
     }
 
