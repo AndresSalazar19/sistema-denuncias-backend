@@ -38,10 +38,8 @@ class DenuncController extends Controller
         DB::beginTransaction();
 
         try {
-            // 🔹 2. Obtener categoría
             $categoria = Categoria::where('slug', $validated['categoria_slug'])->first();
 
-            // 🔹 3. Crear denuncia
             $denuncia = Denuncia::create([
                 'codigo_seguimiento' => strtoupper(Str::random(10)),
                 'titulo' => $validated['titulo'],
@@ -53,14 +51,16 @@ class DenuncController extends Controller
                 'ubicacion_lng' => $validated['ubicacion_lng'] ?? null,
             ]);
 
-            // 🔹 4. Guardar imágenes (si hay)
             if ($request->hasFile('imagenes')) {
                 foreach ($request->file('imagenes') as $file) {
-                    $path = $file->store('denuncias', 'public');
+                    
+                    $path = $file->store('evidencias', 'gcs');
+
+                    $url = Storage::disk('gcs')->url($path);
 
                     EvidenciaDenuncia::create([
                         'denuncia_id' => $denuncia->id,
-                        'file_path' => $path,
+                        'file_path' => $url,
                         'file_name' => $file->getClientOriginalName(),
                         'file_size' => $file->getSize(),
                     ]);
@@ -69,7 +69,6 @@ class DenuncController extends Controller
 
             DB::commit();
 
-            // 🔹 5. Respuesta correcta
             return response()->json([
                 'message' => 'Denuncia creada correctamente',
                 'codigo_seguimiento' => $denuncia->codigo_seguimiento
