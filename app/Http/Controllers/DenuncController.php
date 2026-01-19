@@ -5,8 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Denuncia;
 use App\Models\Categoria;
 use App\Models\EstadoDenuncia;
+use App\Models\EvidenciaDenuncia;
 use App\Models\HistorialEstadoDenuncia;
-use App\Models\EvidenciaDenuncia; 
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
@@ -15,97 +15,72 @@ class DenuncController extends Controller
 {
     public function store(Request $request)
     {
-
-        if ($request->has('categoria')) {
-            $cat = Categoria::where('slug', $request->categoria)->first();
-            if ($cat) {
-                $request->merge(['categoria_id' => $cat->id]); // Inyectamos el ID correcto
-            }
-        }
-
+        // 🔹 1. Validación
         $validated = $request->validate([
             'titulo' => 'required|string|max:200',
             'descripcion' => 'required|string',
-            'categoria_id' => 'required|exists:categorias,id', // Ahora esto pasará
-            'ubicacion_lat' => 'required', // React lo envía como string o number
-            'ubicacion_lng' => 'required',
-            // Validar que sean imágenes reales (máx 5MB)
-            'imagenes.*' => 'nullable|image|max:5120' 
+            'categoria_slug' => 'required|exists:categorias,slug',
+            'ubicacion_direccion' => 'nullable|string|max:255',
+            'ubicacion_lat' => 'nullable|numeric|between:-90,90',
+            'ubicacion_lng' => 'nullable|numeric|between:-180,180',
+            'imagenes' => 'nullable|array|max:3',
+            'imagenes.*' => 'image|max:5120', // 5MB
         ]);
 
-        // Iniciar una transacción de base de datos (por si algo falla, no guardar nada)
-        return DB::transaction(function () use ($validated, $request) {
-            
-            // Generar código
-            $codigo = $this->generarCodigoUnico();
-            
-            // Estado inicial (Nueva)
-            $estadoInicial = EstadoDenuncia::where('slug', 'nueva')->first();
-            if (!$estadoInicial) {
-                 // Fallback por si la DB está vacía
-                 $estadoInicial = EstadoDenuncia::firstOrCreate(['slug' => 'nueva'], ['name' => 'Nueva', 'color' => '#3b82f6']);
-            }
+        DB::beginTransaction();
 
-            // Crear la Denuncia
+        try {
+            // 🔹 2. Obtener categoría
+            $categoria = Categoria::where('slug', $validated['categoria_slug'])->first();
+
+            // 🔹 3. Crear denuncia
             $denuncia = Denuncia::create([
-                'codigo_seguimiento' => $codigo,
+                'codigo_seguimiento' => strtoupper(Str::random(10)),
                 'titulo' => $validated['titulo'],
                 'descripcion' => $validated['descripcion'],
-                'categoria_id' => $validated['categoria_id'],
-                'estado_id' => $estadoInicial->id,
-                'ubicacion_lat' => $validated['ubicacion_lat'],
-                'ubicacion_lng' => $validated['ubicacion_lng'],
-                // Asumimos que la dirección no la envía el frontend aún, o es null
-                'ubicacion_direccion' => $request->input('ubicacion_direccion', 'Ubicación en mapa'),
+                'categoria_id' => $categoria->id,
+                'estado_id' => 1,
+                'ubicacion_direccion' => $validated['ubicacion_direccion'] ?? null,
+                'ubicacion_lat' => $validated['ubicacion_lat'] ?? null,
+                'ubicacion_lng' => $validated['ubicacion_lng'] ?? null,
             ]);
 
-            // Registrar historial
-            HistorialEstadoDenuncia::create([
-                'denuncia_id' => $denuncia->id,
-                'estado_nuevo_id' => $estadoInicial->id,
-                'created_at' => now()
-            ]);
-
+            // 🔹 4. Guardar imágenes (si hay)
             if ($request->hasFile('imagenes')) {
-                foreach ($request->file('imagenes') as $archivo) {
-                    
-                    // Subir al Bucket configurado en .env
-                    $path = $archivo->store('evidencias', 'gcs');
-                    //Obtener URL Pública
-                    $url = Storage::disk('gcs')->url($path);
+                foreach ($request->file('imagenes') as $file) {
+                    $path = $file->store('denuncias', 'public');
 
-                    // Guardar en tabla 'evidencia_denuncias'
-                    if (class_exists(EvidenciaDenuncia::class)) {
-                        EvidenciaDenuncia::create([
-                            'denuncia_id' => $denuncia->id,
-                            'file_path'   => $url, 
-                            'file_name'   => $archivo->getClientOriginalName(), 
-                            'file_size'   => $archivo->getSize(),
-                        ]);
-                    } else {
-                        DB::table('evidencia_denuncias')->insert([
-                            'denuncia_id' => $denuncia->id,
-                            'url_archivo' => $url,
-                            'tipo_archivo' => $archivo->getClientOriginalExtension(),
-                            'created_at' => now(),
-                            'updated_at' => now()
-                        ]);
-                    }
+                    EvidenciaDenuncia::create([
+                        'denuncia_id' => $denuncia->id,
+                        'file_path' => $path,
+                        'file_name' => $file->getClientOriginalName(),
+                        'file_size' => $file->getSize(),
+                    ]);
                 }
             }
 
+            DB::commit();
+
+            // 🔹 5. Respuesta correcta
             return response()->json([
-                'message' => 'Denuncia registrada con éxito',
-                'codigo' => $denuncia->codigo_seguimiento,
-                // Cargamos la relación de evidencias para que el frontend vea que se subieron
-                'data' => $denuncia->load('categoria', 'estado') 
+                'message' => 'Denuncia creada correctamente',
+                'codigo_seguimiento' => $denuncia->codigo_seguimiento
             ], 201);
-        });
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'message' => 'Error al crear la denuncia',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     public function showByCode($codigo)
     {
-        $denuncia = Denuncia::with(['categoria', 'estado', 'evidencias']) // Asegúrate que la relación 'evidencias' exista en el Modelo Denuncia
+        // 1. Buscar la denuncia por el código único de seguimiento
+        $denuncia = Denuncia::with(['categoria', 'estado'])
             ->where('codigo_seguimiento', $codigo)
             ->first();
             
@@ -119,11 +94,12 @@ class DenuncController extends Controller
             'estado_color' => $denuncia->estado->color,
             'categoria' => $denuncia->categoria->name,
             'fecha_registro' => $denuncia->created_at->format('d/m/Y - H:i'),
-            'evidencias' => $denuncia->evidencias->map(function($evidencia) {
-                return [
-                    'url' => $evidencia->url_archivo // Aquí usamos directo la URL de Google
-                ];
-            })
+            'fecha_actualizacion' => $denuncia->updated_at->format('d/m/Y - H:i'),
+            'ubicacion' => [
+                'direccion' => $denuncia->ubicacion_direccion,
+                'lat' => $denuncia->ubicacion_lat,
+                'lng' => $denuncia->ubicacion_lng
+            ],
         ]);
     }
     
