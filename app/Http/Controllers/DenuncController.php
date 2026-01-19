@@ -15,11 +15,12 @@ class DenuncController extends Controller
 {
     public function store(Request $request)
     {
+        $slug = $request->input('categoria') ?? $request->input('categoria_slug');
 
-        if ($request->has('categoria')) {
-            $cat = Categoria::where('slug', $request->categoria)->first();
+        if ($slug) {
+            $cat = Categoria::where('slug', $slug)->first();
             if ($cat) {
-                $request->merge(['categoria_id' => $cat->id]); // Inyectamos el ID correcto
+                $request->merge(['categoria_id' => $cat->id]); 
             }
         }
 
@@ -105,7 +106,7 @@ class DenuncController extends Controller
 
     public function showByCode($codigo)
     {
-        $denuncia = Denuncia::with(['categoria', 'estado', 'evidencias']) // Asegúrate que la relación 'evidencias' exista en el Modelo Denuncia
+        $denuncia = Denuncia::with(['categoria', 'estado', 'evidencias'])
             ->where('codigo_seguimiento', $codigo)
             ->first();
             
@@ -121,9 +122,14 @@ class DenuncController extends Controller
             'fecha_registro' => $denuncia->created_at->format('d/m/Y - H:i'),
             'evidencias' => $denuncia->evidencias->map(function($evidencia) {
                 return [
-                    'url' => $evidencia->url_archivo // Aquí usamos directo la URL de Google
+                    'url' => $evidencia->file_path 
                 ];
-            })
+            }),
+            'ubicacion' => [
+                'lat' => $denuncia->ubicacion_lat,
+                'lng' => $denuncia->ubicacion_lng,
+                'direccion' => $denuncia->ubicacion_direccion
+            ]
         ]);
     }
     
