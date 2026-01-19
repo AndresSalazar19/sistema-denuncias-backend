@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Categoria;
+use App\Models\EvidenciaDenuncia;
 
 class Denuncia extends Model
 {
@@ -28,4 +30,10 @@ class Denuncia extends Model
     {
         return $this->belongsTo(EstadoDenuncia::class, 'estado_id');
     }
+
+    public function evidencias()
+    {
+        return $this->hasMany(EvidenciaDenuncia::class);
+    }
+
 }
