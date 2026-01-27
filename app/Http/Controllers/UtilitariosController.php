@@ -7,7 +7,7 @@ Class UtilitariosController extends Controller
 {
    public function getDenuncias()
     {
-        $denuncias = Denuncia::with(['categoria', 'estado'])->orderBy('created_at', 'desc')->get();
+        $denuncias = Denuncia::with(['categoria', 'estado','evidencias'])->orderBy('created_at', 'desc')->get();
 
         return response()->json([
             'total' => $denuncias->count(),
