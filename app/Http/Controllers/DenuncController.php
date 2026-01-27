@@ -32,7 +32,7 @@ class DenuncController extends Controller
             'ubicacion_lat' => 'nullable|numeric|between:-90,90',
             'ubicacion_lng' => 'nullable|numeric|between:-180,180',
             'imagenes' => 'nullable|array|max:3',
-            'imagenes.*' => 'image|max:5120', // 5MB
+            'imagenes.*' => 'image|max:20480', // 20MB
         ]);
 
         DB::beginTransaction();
